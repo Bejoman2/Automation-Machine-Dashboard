@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Automation Machine Dashboard — MVP
 
 Stack:
@@ -174,3 +175,6 @@ The Dashboard header has a LIVE refresh selector: OFF, 1s, 2s, 5s, 10s, 30s, or 
 
 ## v8 — Non-blocking CSV import
 `SAVE & SCAN` now starts the historical import as a background job. The CSV Source screen polls the job status and shows CSV progress, current file, imported records, and a final `IMPORT COMPLETE` state. The importer also loads the existing source keys once instead of querying the whole ProductionRecord table for every CSV file, reducing the cost of importing many historical files.
+=======
+# Automation-Machine-Dashboard
+>>>>>>> 42a4b77fec2cf0b6f56998e0e4e16e30638b81b1
