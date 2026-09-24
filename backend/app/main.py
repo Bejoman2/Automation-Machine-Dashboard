@@ -10,7 +10,7 @@ from datetime import time
 
 Base.metadata.create_all(bind=engine)
 
-app = FastAPI(title="Automation Machine Dashboard API", version="1.0.0")
+app = FastAPI(title="Automation Machine Dashboard API", version="1.4.0")
 
 origins = [x.strip() for x in settings.cors_origins.split(",") if x.strip()]
 app.add_middleware(
@@ -46,3 +46,8 @@ def seed():
 @app.get("/api/health")
 def health():
     return {"status":"online"}
+
+@app.get("/api/build-info")
+def build_info():
+    return {"backend_version": "V10.2", "features": ["csv_header_autodetect", "column_mapping", "folder_scan", "live_refresh"]}
+

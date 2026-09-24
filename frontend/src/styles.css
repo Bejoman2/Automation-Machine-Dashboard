@@ -48,3 +48,11 @@
 .progress-meta{display:flex;justify-content:space-between;gap:12px;margin-top:6px;font-size:12px;color:#8ea09a}
 .progress-file{margin-top:6px;font-size:11px;color:#6f807a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .status-details{margin-top:7px;font-size:11px;color:#71817c}
+.mapping-panel{margin-top:18px;border:1px solid #26332e;background:#0d1211;padding:18px}
+.mapping-file{font-size:12px;color:#8c9a95;margin:8px 0 14px;word-break:break-all}
+.mapping-empty{border:1px dashed #30403a;padding:24px;text-align:center;color:#7d8b86}
+.mapping-grid{display:grid;grid-template-columns:repeat(4,minmax(180px,1fr));gap:14px}
+.mapping-actions{display:flex;align-items:center;gap:16px;margin-top:14px}
+.mapping-hint{font-size:11px;color:#71807a}
+.sample-table{margin-top:16px;max-height:260px;overflow:auto}
+@media(max-width:1100px){.mapping-grid{grid-template-columns:repeat(2,minmax(180px,1fr))}}

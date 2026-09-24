@@ -42,7 +42,11 @@ function App(){
     const [s,st,t,so,c]=await Promise.all([
       api.get("/shifts"),api.get("/stations"),api.get("/targets"),api.get("/sources"),api.get("/corrections")
     ])
-    setShifts(s.data); setStations(st.data); setTargets(t.data); setSources(so.data); setCorrections(c.data)
+    const sourceRows = await Promise.all(so.data.map(async row => {
+      try { const m = await api.get(`/sources/${row.id}/mapping`); return {...row, mapping:m.data} }
+      catch { return row }
+    }))
+    setShifts(s.data); setStations(st.data); setTargets(t.data); setSources(sourceRows); setCorrections(c.data)
     if(!shiftId && s.data.length) setShiftId(String(s.data[0].id))
   }
 
@@ -133,7 +137,7 @@ function App(){
     <header className="topbar">
       <div className="brand">
         <div className="brand-mark">WIK</div>
-        <div><div className="title">AUTOMATION MACHINE</div><div className="subtitle">OUTPUT DASHBOARD / 1st Needle Plate Automation</div></div>
+        <div><div className="title">AUTOMATION MACHINE</div><div className="subtitle">OUTPUT DASHBOARD / MINI ME 2 LINE</div></div>
       </div>
       <div className="header-actions">
         <span className="status-dot"/> SYSTEM ONLINE
@@ -176,7 +180,7 @@ function App(){
       <Nav label="Station Master" active={page==="stations"} onClick={()=>setPage("stations")} icon="▤"/>
       <Nav label="CSV Source" active={page==="sources"} onClick={()=>setPage("sources")} icon="▥"/>
       <Nav label="Corrections" active={page==="corrections"} onClick={()=>setPage("corrections")} icon="✎"/>
-      <div className="sidebar-footer">MVP v1.0<br/>CSV → SQLITE → API → REACT</div>
+      <div className="sidebar-footer">V10<br/>CSV → MAPPING → SQLITE → API → REACT</div>
     </aside>
 
     <main className="content">
@@ -284,139 +288,166 @@ async function selectNativeFolder(){
 }
 
 function SourceTable({rows,stations,onReload}){
-  const existing = rows[0]
-  const [stationId,setStationId] = useState(existing?.station_id || stations[stations.length-1]?.id || "")
-  const [path,setPath] = useState(existing?.csv_folder_path || "")
-  const [status,setStatus] = useState(null)
-  const [busy,setBusy] = useState(false)
-  const pollRef = useRef(null)
+  const existing=rows[0]
+  const [stationId,setStationId]=useState(existing?.station_id || stations[stations.length-1]?.id || "")
+  const [path,setPath]=useState(existing?.csv_folder_path || "")
+  const [status,setStatus]=useState(null)
+  const [busy,setBusy]=useState(false)
+  const [headers,setHeaders]=useState([])
+  const [sampleRows,setSampleRows]=useState([])
+  const [headerFile,setHeaderFile]=useState("")
+  const [mapping,setMapping]=useState({timestamp_column:"",output_column:"",crack_column:"",ok_value:"OK"})
+  const [mappingLoaded,setMappingLoaded]=useState(false)
+  const pollRef=useRef(null)
 
-  useEffect(()=>()=>{ if(pollRef.current) clearInterval(pollRef.current) },[])
+  useEffect(()=>()=>{if(pollRef.current)clearInterval(pollRef.current)},[])
+  useEffect(()=>{
+    if(existing){
+      setStationId(existing.station_id);setPath(existing.csv_folder_path)
+      loadSavedMapping(existing.id)
+    }
+  },[existing?.id])
+
+  async function loadSavedMapping(sourceId){
+    try{
+      const r=await api.get(`/sources/${sourceId}/mapping`)
+      if(r.data){setMapping(r.data);setMappingLoaded(true)}
+    }catch(e){setStatus({status:"error",message:e.response?.data?.detail||e.message})}
+  }
+
+  async function detectHeaders(folder=path){
+    if(!folder.trim()){setStatus({connected:false,message:"Enter a CSV folder path first."});return false}
+    try{
+      const r=await api.get("/csv/headers",{params:{folder_path:folder.trim()}})
+      setHeaders(r.data.headers||[])
+      setSampleRows(r.data.sample_rows||[])
+      setHeaderFile(r.data.relative_file||r.data.file||"")
+      const recommended=r.data.recommended||{}
+      const nextMapping={
+        timestamp_column:mapping.timestamp_column||recommended.timestamp_column||r.data.headers?.[0]||"",
+        output_column:mapping.output_column||recommended.output_column||r.data.headers?.[0]||"",
+        crack_column:mapping.crack_column||recommended.crack_column||"",
+        ok_value:mapping.ok_value||recommended.ok_value||"OK"
+      }
+      setMapping(nextMapping)
+      setMappingLoaded(true)
+      setStatus({connected:true,message:`Header detected from ${r.data.relative_file||r.data.file||"latest CSV"}.`})
+      return {headers:r.data.headers||[],recommended,nextMapping}
+    }catch(e){
+      setStatus({connected:false,message:e.response?.data?.detail||e.message})
+      return false
+    }
+  }
 
   async function pollScan(jobId){
-    if(pollRef.current) clearInterval(pollRef.current)
-    pollRef.current = setInterval(async()=>{
+    if(pollRef.current)clearInterval(pollRef.current)
+    pollRef.current=setInterval(async()=>{
       try{
-        const r = await api.get(`/scan-folder/status/${jobId}`)
-        setStatus(r.data)
-        if(r.data.status === "completed" || r.data.status === "error"){
-          clearInterval(pollRef.current)
-          pollRef.current = null
-          setBusy(false)
-          await onReload()
+        const r=await api.get(`/scan-folder/status/${jobId}`);setStatus(r.data)
+        if(r.data.status==="completed"||r.data.status==="error"){
+          clearInterval(pollRef.current);pollRef.current=null;setBusy(false);await onReload()
         }
-      }catch(e){
-        clearInterval(pollRef.current)
-        pollRef.current = null
-        setBusy(false)
-        setStatus({connected:false,status:"error",message:e.response?.data?.detail || e.message})
-      }
-    }, 500)
+      }catch(e){clearInterval(pollRef.current);pollRef.current=null;setBusy(false);setStatus({connected:false,status:"error",message:e.response?.data?.detail||e.message})}
+    },500)
   }
 
   async function startScan(folder){
-    const r = await api.post("/scan-folder/start",null,{params:{folder_path:folder}})
+    const r=await api.post("/scan-folder/start",null,{params:{folder_path:folder}})
     setStatus(r.data)
-    if(r.data.job_id) await pollScan(r.data.job_id)
-    else if(r.data.status === "running"){
-      setStatus({...r.data,message:"Another scan is already running. Please wait..."})
-    }
+    if(r.data.job_id)await pollScan(r.data.job_id)
   }
 
   async function testConnection(){
-    if(!path.trim()){
-      setStatus({connected:false,message:"Enter a CSV folder path first."})
-      return
-    }
+    if(!path.trim()){setStatus({connected:false,message:"Enter a CSV folder path first."});return}
     setBusy(true)
     try{
-      const r = await api.post("/test-folder",null,{params:{folder_path:path.trim()}})
-      setStatus(r.data)
-    }catch(e){
-      setStatus({connected:false,message:e.response?.data?.detail || e.message})
-    }finally{setBusy(false)}
+      const r=await api.post("/test-folder",null,{params:{folder_path:path.trim()}});setStatus(r.data)
+      if(r.data.connected)await detectHeaders(path.trim())
+    }catch(e){setStatus({connected:false,message:e.response?.data?.detail||e.message})}
+    finally{setBusy(false)}
   }
 
   async function saveAndScan(){
-    if(!path.trim()){
-      setStatus({connected:false,message:"CSV folder path is required."})
-      return
-    }
-
+    if(!path.trim()){setStatus({connected:false,message:"CSV folder path is required."});return}
     setBusy(true)
     try{
-      const test = await api.post("/test-folder",null,{params:{folder_path:path.trim()}})
-      setStatus(test.data)
+      const test=await api.post("/test-folder",null,{params:{folder_path:path.trim()}});setStatus(test.data)
       if(!test.data.connected){setBusy(false);return}
-
-      const payload = {station_id:Number(stationId),csv_folder_path:path.trim()}
-      if(existing) await api.put(`/sources/${existing.id}`,payload)
-      else await api.post("/sources",payload)
+      const detected=await detectHeaders(path.trim())
+      if(!detected){setBusy(false);return}
+      const activeMapping=detected.nextMapping
+      if(!activeMapping.timestamp_column||!activeMapping.output_column){setStatus({connected:false,message:"Select Timestamp and Output Result columns before saving."});setBusy(false);return}
+      const payload={station_id:Number(stationId),csv_folder_path:path.trim()}
+      let sourceId=existing?.id
+      if(sourceId)await api.put(`/sources/${sourceId}`,payload)
+      else {const created=await api.post("/sources",payload);sourceId=created.data.id}
+      await api.put(`/sources/${sourceId}/mapping`,activeMapping)
       await onReload()
-
+      setMappingLoaded(true)
       await startScan(path.trim())
-    }catch(e){
-      setBusy(false)
-      setStatus({connected:false,status:"error",message:e.response?.data?.detail || e.message})
-    }
+    }catch(e){setBusy(false);setStatus({connected:false,status:"error",message:e.response?.data?.detail||e.message})}
+  }
+
+  async function saveMappingOnly(){
+    if(!existing){setStatus({connected:false,message:"Save the CSV source first."});return}
+    if(!mapping.timestamp_column||!mapping.output_column){setStatus({connected:false,message:"Timestamp and Output Result columns are required."});return}
+    setBusy(true)
+    try{
+      const r=await api.put(`/sources/${existing.id}/mapping`,mapping)
+      setMapping(r.data);setMappingLoaded(true);setStatus({connected:true,message:"CSV column mapping saved."})
+    }catch(e){setStatus({connected:false,message:e.response?.data?.detail||e.message})}
+    finally{setBusy(false)}
   }
 
   async function refreshData(){
-    if(!path.trim()) return
+    if(!path.trim())return
     setBusy(true)
-    try{
-      await startScan(path.trim())
-    }catch(e){
-      setBusy(false)
-      setStatus({connected:false,status:"error",message:e.response?.data?.detail || e.message})
-    }
+    try{await startScan(path.trim())}
+    catch(e){setBusy(false);setStatus({connected:false,status:"error",message:e.response?.data?.detail||e.message})}
   }
 
-  const progress = status?.total ? Math.min(100,Math.round((status.current/status.total)*100)) : 0
-  const scanning = busy && (status?.status === "queued" || status?.status === "running")
+  const progress=status?.total?Math.min(100,Math.round(status.current/status.total*100)):0
+  const scanning=busy&&(status?.status==="queued"||status?.status==="running")
+  const selectOptions=headers.map(h=>({value:h,label:h}))
 
   return <Master title="CSV SOURCE">
     <div className="source-config">
       <div className="source-config-row">
         <Field label="FINAL STATION" type="select" options={stations.map(s=>({value:s.id,label:s.name}))} value={stationId} onChange={v=>setStationId(v)}/>
-        <div className="field folder-field">
-          <span>CSV FOLDER PATH</span>
-          <div className="folder-input-row">
-            <input value={path} onChange={e=>setPath(e.target.value)} placeholder="Select a Hikrobot CSV folder"/>
-            <button className="secondary folder-picker" onClick={async()=>{
-              try{
-                const result = await selectNativeFolder()
-                if(result?.cancelled) return
-                if(result?.path){setPath(result.path);setStatus({connected:true,folder:result.path,message:"Folder selected. Click TEST CONNECTION or SAVE & SCAN."})}
-                else if(result?.browserOnly){setStatus({connected:false,message:"Browser folder picker selected a folder, but browsers do not expose the Windows path. Run the Desktop version to use native folder selection."})}
-                else if(result?.unsupported){setStatus({connected:false,message:"Native folder selection is available in the Desktop version."})}
-              }catch(e){setStatus({connected:false,message:e.message})}
-            }} disabled={busy}>📁 SELECT FOLDER</button>
-          </div>
-        </div>
+        <div className="field folder-field"><span>CSV FOLDER PATH</span><div className="folder-input-row">
+          <input value={path} onChange={e=>setPath(e.target.value)} placeholder="Select a Hikrobot CSV folder"/>
+          <button className="secondary folder-picker" onClick={async()=>{try{const result=await selectNativeFolder();if(result?.cancelled)return;if(result?.path){setPath(result.path);setStatus({connected:true,folder:result.path,message:"Folder selected. Click TEST CONNECTION."})}else if(result?.browserOnly)setStatus({connected:false,message:"Browser folder picker does not expose the Windows path. Use the Desktop version."})}catch(e){setStatus({connected:false,message:e.message})}}} disabled={busy}>📁 SELECT FOLDER</button>
+        </div></div>
       </div>
       <div className="source-actions">
-        <button className="secondary" onClick={testConnection} disabled={busy}>TEST CONNECTION</button>
-        <button className="primary" onClick={saveAndScan} disabled={busy}>{scanning?"IMPORTING...":"SAVE & SCAN"}</button>
+        <button className="secondary" onClick={testConnection} disabled={busy}>TEST CONNECTION + READ HEADER</button>
+        <button className="primary" onClick={saveAndScan} disabled={busy}>{scanning?"IMPORTING...":"SAVE MAPPING & SCAN"}</button>
         <button className="secondary" onClick={refreshData} disabled={busy}>REFRESH DATA</button>
       </div>
 
-      {status && <div className={`source-status ${status.status === "error" || status.connected === false ? "error" : "ok"}`}>
-        <div className="source-status-line">
-          <span className="status-dot"/>
-          <strong>{status.status === "running" || status.status === "queued" ? "IMPORTING" : status.status === "completed" ? "IMPORT COMPLETE" : status.connected ? "CONNECTED" : "NOT CONNECTED"}</strong>
-          <span>{status.message || ""}</span>
-        </div>
-        {(status.status === "running" || status.status === "queued" || status.status === "completed") && status.total != null && <>
-          <div className="progress-track"><div className="progress-fill" style={{width:`${progress}%`}}/></div>
-          <div className="progress-meta"><span>{status.current || 0} / {status.total || 0} CSV files</span><span>{status.imported || 0} new records</span></div>
-          {status.file && <div className="progress-file">Current: {status.file}</div>}
-        </>}
-        {status.files_found != null && <div className="status-details">Files: {status.files_found} · Date folders: {status.date_folders_found} · Latest: {status.latest_file || "-"}</div>}
+      {status&&<div className={`source-status ${status.status==="error"||status.connected===false?"error":"ok"}`}>
+        <div className="source-status-line"><span className="status-dot"/><strong>{status.status==="running"||status.status==="queued"?"IMPORTING":status.status==="completed"?"IMPORT COMPLETE":status.connected?"CONNECTED":"NOT CONNECTED"}</strong><span>{status.message||""}</span></div>
+        {(status.status==="running"||status.status==="queued"||status.status==="completed")&&status.total!=null&&<><div className="progress-track"><div className="progress-fill" style={{width:`${progress}%`}}/></div><div className="progress-meta"><span>{status.current||0} / {status.total||0} CSV files</span><span>{status.imported||0} new records</span></div>{status.file&&<div className="progress-file">Current: {status.file}</div>}</>}
+        {status.files_found!=null&&<div className="status-details">Files: {status.files_found} · Date folders: {status.date_folders_found} · Latest: {status.latest_file||"-"}</div>}
       </div>}
 
-      <div className="table-wrap"><table><thead><tr><th>STATION</th><th>CSV FOLDER</th><th>ACTIONS</th></tr></thead><tbody>
-        {rows.map(r=><tr key={r.id}><td>{stations.find(s=>s.id===r.station_id)?.name || r.station_id}</td><td>{r.csv_folder_path}</td><td><button className="secondary" onClick={()=>{setStationId(r.station_id);setPath(r.csv_folder_path)}} disabled={busy}>LOAD</button></td></tr>)}
+      <div className="mapping-panel">
+        <div className="panel-head"><h2>CSV HEADER AUTO-DETECT + COLUMN MAPPING</h2><span>{headers.length?`${headers.length} COLUMNS DETECTED`:"WAITING FOR HEADER"}</span></div>
+        {headerFile&&<div className="mapping-file">SOURCE FILE: <strong>{headerFile}</strong></div>}
+        {!headers.length?<div className="mapping-empty">Click <strong>TEST CONNECTION + READ HEADER</strong> to read the latest CSV header.</div>:<>
+          <div className="mapping-grid">
+            <Field label="TIMESTAMP COLUMN *" type="select" options={selectOptions} value={mapping.timestamp_column} onChange={v=>setMapping({...mapping,timestamp_column:v})}/>
+            <Field label="OUTPUT RESULT COLUMN *" type="select" options={selectOptions} value={mapping.output_column} onChange={v=>setMapping({...mapping,output_column:v})}/>
+            <Field label="CRACK / DEFECT COLUMN" type="select" options={[{value:"",label:"— NOT USED —"},...selectOptions]} value={mapping.crack_column} onChange={v=>setMapping({...mapping,crack_column:v})}/>
+            <Field label="OK VALUE" value={mapping.ok_value} onChange={v=>setMapping({...mapping,ok_value:v})}/>
+          </div>
+          <div className="mapping-actions"><button className="primary" onClick={saveMappingOnly} disabled={busy||!existing}>SAVE MAPPING</button><span className="mapping-hint">All other CSV columns are preserved in the source file but are ignored by the MVP importer.</span></div>
+          {sampleRows.length>0&&<div className="table-wrap sample-table"><table><thead><tr>{headers.map(h=><th key={h}>{h}</th>)}</tr></thead><tbody>{sampleRows.map((r,i)=><tr key={i}>{headers.map(h=><td key={h}>{String(r[h]??"")}</td>)}</tr>)}</tbody></table></div>}
+        </>}
+      </div>
+
+      <div className="table-wrap"><table><thead><tr><th>STATION</th><th>CSV FOLDER</th><th>MAPPING</th><th>ACTIONS</th></tr></thead><tbody>
+        {rows.map(r=><tr key={r.id}><td>{stations.find(s=>s.id===r.station_id)?.name||r.station_id}</td><td>{r.csv_folder_path}</td><td>{r.mapping?`${r.mapping.timestamp_column} → ${r.mapping.output_column} = ${r.mapping.ok_value}`:"Not configured"}</td><td><button className="secondary" onClick={async()=>{setStationId(r.station_id);setPath(r.csv_folder_path);await loadSavedMapping(r.id);await detectHeaders(r.csv_folder_path)}} disabled={busy}>LOAD</button></td></tr>)}
       </tbody></table></div>
     </div>
   </Master>

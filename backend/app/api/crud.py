@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from ..db import get_db
-from ..models import Shift, Target, Station, StationOutputSource, ManualCorrection, ProductionRecord
+from ..models import Shift, Target, Station, StationOutputSource, CsvColumnMapping, ManualCorrection, ProductionRecord
 from ..schemas import *
 
 router = APIRouter(prefix="/api", tags=["CRUD"])
@@ -124,3 +124,25 @@ def create_correction(data:CorrectionCreate,db:Session=Depends(get_db)):
         corrected_by=data.corrected_by,
     )
     db.add(obj); db.commit(); db.refresh(obj); return obj
+
+@router.get("/sources/{id}/mapping", response_model=CsvMappingOut | None)
+def get_source_mapping(id: int, db: Session = Depends(get_db)):
+    source = db.get(StationOutputSource, id)
+    if not source:
+        raise HTTPException(404, "Source not found")
+    return source.mapping
+
+@router.put("/sources/{id}/mapping", response_model=CsvMappingOut)
+def save_source_mapping(id: int, data: CsvMappingCreate, db: Session = Depends(get_db)):
+    source = db.get(StationOutputSource, id)
+    if not source:
+        raise HTTPException(404, "Source not found")
+    mapping = source.mapping
+    if mapping is None:
+        mapping = CsvColumnMapping(source_id=id, **data.model_dump())
+        db.add(mapping)
+    else:
+        for k, v in data.model_dump().items():
+            setattr(mapping, k, v)
+    db.commit(); db.refresh(mapping)
+    return mapping

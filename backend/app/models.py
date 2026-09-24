@@ -1,5 +1,5 @@
 from datetime import datetime, time, date
-from sqlalchemy import String, Integer, Boolean, DateTime, Date, Time, ForeignKey, Text
+from sqlalchemy import String, Integer, Boolean, DateTime, Date, Time, ForeignKey, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from .db import Base
 
@@ -36,14 +36,26 @@ class StationOutputSource(Base):
     station_id: Mapped[int] = mapped_column(ForeignKey("stations.id"), nullable=False)
     csv_folder_path: Mapped[str] = mapped_column(Text, nullable=False)
     station = relationship("Station")
+    mapping = relationship("CsvColumnMapping", back_populates="source", uselist=False, cascade="all, delete-orphan")
+
+
+class CsvColumnMapping(Base):
+    __tablename__ = "csv_column_mappings"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    source_id: Mapped[int] = mapped_column(ForeignKey("station_output_sources.id", ondelete="CASCADE"), nullable=False, unique=True)
+    timestamp_column: Mapped[str] = mapped_column(String(200), nullable=False)
+    output_column: Mapped[str] = mapped_column(String(200), nullable=False)
+    crack_column: Mapped[str] = mapped_column(String(200), default="")
+    ok_value: Mapped[str] = mapped_column(String(100), default="OK")
+    source = relationship("StationOutputSource", back_populates="mapping")
 
 
 class ProductionRecord(Base):
     __tablename__ = "production_records"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     timestamp: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)
-    crack_result: Mapped[str] = mapped_column(String(30), default="")
-    final_result: Mapped[str] = mapped_column(String(30), default="")
+    crack_result: Mapped[str] = mapped_column(String(100), default="")
+    final_result: Mapped[str] = mapped_column(String(200), default="")
     source_file: Mapped[str] = mapped_column(String(500), default="")
     source_row: Mapped[int] = mapped_column(Integer, default=0)
 

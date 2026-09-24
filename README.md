@@ -1,47 +1,83 @@
-<<<<<<< HEAD
-# Automation Machine Dashboard — MVP
+# WIK Automation Machine Dashboard — V10
 
-Stack:
-- Backend: Python + FastAPI + SQLAlchemy + SQLite
-- Frontend: React + Vite + Recharts
-- Data source: CSV from final inspection station
-- UI: dark WIK-style technical dashboard
+## V10 focus: CSV Header Auto-Detect + Dropdown Mapping
 
-## Features
-- CSV ingestion from configurable folder
-- SQLite cache of production records
-- Shift summary: OK / NG / Total / Achievement
-- Hourly breakdown chart + table
-- CRUD: Shift, Target, Station, Station Output Source, Manual Correction
-- Manual refresh
-- Dark technical UI
-- API docs at `/docs`
+V10 removes the hard dependency on fixed CSV column names for the production output importer.
+The application reads the header of the latest CSV file and lets the engineer select which columns represent:
 
-## CSV format
+- **Timestamp Column** — production timestamp
+- **Output Result Column** — the final inspection result used for OK/NG counting
+- **Crack / Defect Column** — optional field retained in the normalized record
+- **OK Value** — the exact value in the Output Result column that is treated as OK
+
+All other CSV columns remain in the source file but are not required by the MVP importer.
+
+### Example source CSV
 
 ```csv
-Time,Crack,Result
-2026/09/21 07:00:07,OK,OK
-2026/09/21 07:00:17,OK,OK
-2026/09/21 07:00:27,NG,NG
+DateTime,Model,Inspection,FinalResult,Crack,NG_Code
+2026/09/22 07:30:01,A,X,PASS,OK,0
+2026/09/22 07:30:02,A,X,FAIL,NG,CRACK
 ```
 
-## Run backend
+The UI can map:
+
+```text
+Timestamp Column   = DateTime
+Output Result      = FinalResult
+Crack / Defect     = Crack
+OK Value           = PASS
+```
+
+The dashboard then counts `FinalResult=PASS` as OK and every other imported result as NG.
+
+## V10 workflow
+
+```text
+Hikrobot CSV folder
+        ↓
+Read latest CSV header
+        ↓
+Auto-detect recommended mapping
+        ↓
+Engineer selects columns from dropdowns
+        ↓
+Save mapping to SQLite
+        ↓
+Initial historical import
+        ↓
+Near-real-time refresh
+        ↓
+Shift / hourly dashboard
+```
+
+## Backend
+
+Stack:
+- Python
+- FastAPI
+- SQLAlchemy
+- SQLite
+- Native Python CSV parser
+
+Run:
 
 ```powershell
 cd backend
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
+python -m pip install -r requirements.txt
 python run.py
 ```
 
-Backend:
+API:
+
+```text
 http://127.0.0.1:8000
+http://127.0.0.1:8000/docs
+```
 
-## Run frontend
-
-Open another terminal:
+## Frontend
 
 ```powershell
 cd frontend
@@ -49,132 +85,85 @@ npm install
 npm run dev
 ```
 
-Frontend:
-http://127.0.0.1:5173
+## Windows EXE
 
-## Configuration
+The repository includes `build_windows.ps1` for:
 
-Backend reads:
+1. PyInstaller backend EXE
+2. React/Vite production build
+3. Electron Windows NSIS installer
 
-`backend/.env`
+Run from the project root:
 
-Example:
-
-```env
-DATABASE_URL=sqlite:///./dashboard.db
-CSV_FOLDER=./data
-CORS_ORIGINS=http://127.0.0.1:5173
-```
-
-For a network folder on Windows:
-
-```env
-CSV_FOLDER=\\\\SERVER\\Production\\FinalInspection
-```
-
-or a local path:
-
-```env
-CSV_FOLDER=D:\\ProductionData\\FinalInspection
-```
-
-## Important MVP assumption
-
-Output is based on the final station CSV. The MVP does not calculate station-level CT/bottleneck and does not connect directly to PLC/Modbus.
-
-## Default shift
-
-- Shift 1: 07:00–17:00
-- Shift 2: 17:00–03:00
-
-The shift engine supports overnight shifts.
-
-
-## Select CSV from Windows File Explorer
-
-The dashboard now has a **SELECT CSV** button in the top-right header.
-
-Workflow:
-
-1. Start FastAPI.
-2. Start React/Vite.
-3. Open the dashboard.
-4. Click `▣ SELECT CSV`.
-5. Windows File Explorer opens.
-6. Select the real Hikrobot CSV.
-7. The CSV is uploaded to FastAPI and imported into SQLite.
-8. The dashboard refreshes its summary.
-
-The browser does not need direct access to the machine's CSV folder. This is useful when the CSV is stored somewhere on the PC/network and the engineer wants to select a specific file manually.
-
-The original `REFRESH FOLDER` button remains available for the configured backend CSV folder.
-
-
-### CSV selection behavior
-
-When a CSV is selected, the backend returns the minimum/maximum timestamp found in that file. The dashboard automatically changes its date filter to the CSV's data date, so a valid imported file does not appear unchanged simply because the dashboard was still filtered to another date.
-
-
-## CSV Folder Source
-
-Normal operation can use a configured local or network folder instead of selecting individual CSV files.
-
-1. Open **CSV SOURCE**.
-2. Select the final station.
-3. Enter a folder path such as:
-   - `D:\Hikrobot\ProductionData`
-   - `\\SERVER\Production\FinalInspection`
-4. Click **TEST CONNECTION**.
-5. Click **SAVE & SCAN**.
-6. The backend scans all `*.csv` files and imports new records into SQLite.
-7. Use **REFRESH DATA** after new CSV data is generated.
-
-Manual **SELECT CSV** remains available in the header for troubleshooting and one-off imports.
-
-## Desktop folder picker (v5)
-The frontend now includes an Electron desktop shell. Use the native Windows **SELECT FOLDER** button to choose the Hikrobot CSV directory without typing the path. The selected Windows path is sent to FastAPI and stored in `StationOutputSource` when you click **SAVE & SCAN**.
-
-### Run
-1. Start backend:
 ```powershell
-cd "C:\path\to\automation_machine_dashboard\backend"
-.\.venv\Scripts\Activate.ps1
-python run.py
-```
-2. In another terminal, install frontend dependencies once:
-```powershell
-cd "C:\path\to\automation_machine_dashboard\frontend"
-npm install
-```
-3. Start desktop app:
-```powershell
-npm run desktop
+Set-ExecutionPolicy -Scope Process Bypass
+.\build_windows.ps1
 ```
 
-For development with Vite hot reload + Electron:
-```powershell
-npm run desktop:dev
+Installer output:
+
+```text
+frontend\release\
 ```
 
-The web browser mode remains available with `npm run dev`, but the native Windows folder picker is intended for the desktop version.
+The packaged application starts the FastAPI backend automatically.
+
+## CSV Source screen
+
+Go to:
+
+```text
+MASTER DATA → CSV SOURCE
+```
+
+Then:
+
+1. Select final station.
+2. Select Hikrobot root folder.
+3. Click **TEST CONNECTION + READ HEADER**.
+4. Verify the detected header and sample rows.
+5. Select **TIMESTAMP COLUMN**.
+6. Select **OUTPUT RESULT COLUMN**.
+7. Optionally select **CRACK / DEFECT COLUMN**.
+8. Enter the value that means OK, e.g. `OK`, `PASS`, or `PASSED`.
+9. Click **SAVE MAPPING & SCAN**.
+
+The mapping is stored per CSV source in SQLite.
+
+## V10 data model addition
+
+`csv_column_mappings`:
+
+```text
+id
+source_id
+ timestamp_column
+output_column
+crack_column
+ok_value
+```
+
+This is intentionally separated from `station_output_sources`, so an existing V9 database can create the new mapping table without requiring a destructive database reset.
+
+## Important limitation in V10
+
+V10 stores the selected output value in `ProductionRecord.final_result`. It does not yet classify individual NG causes into a master classification table.
+
+The planned next layer is:
+
+```text
+NG Code / NG Value
+        ↓
+NG Classification Master
+        ↓
+Crack / Missing / Dimension / Leak / Other
+        ↓
+Pareto + Trend + Shift breakdown
+```
+
+That is the intended V11 direction.
 
 
-### Electron fix v5.1
-The Vite build uses a relative base path (`./`) so the packaged Electron app can load React assets correctly from `dist/index.html`.
+## V10.2 packaging note
 
-### Hikrobot recursive CSV source
-The CSV Source folder should point to the Hikrobot raw-data root, for example:
-`...\09. Log file\00. All Raw data`
-
-The backend recursively scans `*.csv` under that folder, including date folders such as `20260729`, `20260730`, etc. The dashboard uses the `Time`/`Timestamp` column from each CSV record for shift/date calculations.
-
-
-### Adjustable near-real-time refresh
-
-The Dashboard header has a LIVE refresh selector: OFF, 1s, 2s, 5s, 10s, 30s, or 60s. The selected value is stored locally on the PC. The live refresh endpoint scans only the selected Hikrobot YYYYMMDD folder and the following date folder, so the dashboard does not rescan the entire historical archive every few seconds. The following date is included to support overnight shifts.
-
-## v8 — Non-blocking CSV import
-`SAVE & SCAN` now starts the historical import as a background job. The CSV Source screen polls the job status and shows CSV progress, current file, imported records, and a final `IMPORT COMPLETE` state. The importer also loads the existing source keys once instead of querying the whole ProductionRecord table for every CSV file, reducing the cost of importing many historical files.
-=======
-# Automation-Machine-Dashboard
->>>>>>> 42a4b77fec2cf0b6f56998e0e4e16e30638b81b1
+This build includes `GET /api/csv/headers` for CSV Header Auto-Detect and `GET /api/build-info` for verifying that the packaged backend matches the frontend. If an installed machine returns 404 for `/api/csv/headers`, rebuild the backend and installer from this source; the frontend must not be paired with an older backend EXE.

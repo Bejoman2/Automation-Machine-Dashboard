@@ -7,7 +7,6 @@ class ShiftBase(BaseModel):
     start_time: time
     end_time: time
     is_active: bool = True
-
 class ShiftCreate(ShiftBase): pass
 class ShiftOut(ShiftBase):
     id: int
@@ -18,7 +17,6 @@ class TargetBase(BaseModel):
     shift_id: int
     date: date
     target_qty: int
-
 class TargetCreate(TargetBase): pass
 class TargetOut(TargetBase):
     id: int
@@ -29,7 +27,6 @@ class StationBase(BaseModel):
     name: str
     sequence_order: int
     is_active: bool = True
-
 class StationCreate(StationBase): pass
 class StationOut(StationBase):
     id: int
@@ -39,10 +36,21 @@ class StationOut(StationBase):
 class SourceBase(BaseModel):
     station_id: int
     csv_folder_path: str
-
 class SourceCreate(SourceBase): pass
 class SourceOut(SourceBase):
     id: int
+    model_config = ConfigDict(from_attributes=True)
+
+
+class CsvMappingBase(BaseModel):
+    timestamp_column: str
+    output_column: str
+    crack_column: str = ""
+    ok_value: str = "OK"
+class CsvMappingCreate(CsvMappingBase): pass
+class CsvMappingOut(CsvMappingBase):
+    id: int
+    source_id: int
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -52,8 +60,6 @@ class CorrectionCreate(BaseModel):
     new_value: str
     reason: str
     corrected_by: str
-
-
 class CorrectionOut(CorrectionCreate):
     id: int
     correction_datetime: datetime
